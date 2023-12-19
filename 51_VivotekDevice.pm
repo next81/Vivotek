@@ -1,7 +1,7 @@
 #
 #	50_VivotekDevice.pm 
 #
-#	(c) 2022 Andreas Planer (https://forum.fhem.de/index.php?action=profile;u=45773)
+#	(c) 2023 Andreas Planer (https://forum.fhem.de/index.php?action=profile;u=45773)
 #
 
 
@@ -66,9 +66,7 @@ sub VivotekDevice_Define($$) {
 		return 'too few parameters: define <name> VivotekDevice <channel>';
 	}
 
-#	$hash->{name}		= $param[0];
 	$hash->{channel}	= $param[2];
-#    $hash->{Interval}	= 300; # Default Interval für Temperaturabfragen
 
 	# Referenz auf $hash unter der channel anlegen
 	$modules{VivotekDevice}{defptr}{$hash->{channel}} = \$hash;
@@ -92,7 +90,7 @@ sub VivotekDevice_Set($$$;$) {
 
 
 	if ($cmd ne '?') {
-		Log3 $name, 3, "VivotekDevice ($name): VivotekDevice_Set() called by $caller";
+		Log3 $name, 4, "VivotekDevice ($name): VivotekDevice_Set() called by $caller";
 		Log3 $name, 5, "VivotekDevice ($name): VivotekDevice_Set() (cmd: $cmd - value: ".(defined($value) ? $value : "").") start";
 
 		return "\"set $name\" needs at least one argument"  unless(defined($cmd));
@@ -102,15 +100,9 @@ sub VivotekDevice_Set($$$;$) {
 	if ($cmd ~~ $setKeys) {
 		Log3 $name, 4, "VivotekDevice ($name): VivotekDevice_Set() IOWrite calling";
 
-#		if ($cmd eq 'on' || $cmd eq 'off') {
-#			$value = $hash->{channel};
-#		}
-#	print "\nchannel: $hash->{channel}\n";	
-#		my $result = IOWrite($hash, $name, $cmd, $hash->{channel});
 		my $result = IOWrite($hash, $name, $cmd, $value);
 	}
 	else {
-#		return "Unknown argument $cmd, choose one of on:noArg off:noArg recordMode";
 		return "Unknown argument $cmd, choose one of on:noArg off:noArg auto:noArg";
 	}
 }
@@ -118,11 +110,6 @@ sub VivotekDevice_Set($$$;$) {
 sub VivotekDevice_Attr($$$$) {
 	my ( $cmd, $name, $aName, $aValue ) = @_;
     
-	if ($cmd eq 'set') {
-		if ($aName eq 'intervalDetails') {
-			return 'Interval less than 300s is not allowed!' if ($aValue < 300);
-		}
-	}
 	return undef;
 }
 
@@ -211,16 +198,6 @@ sub VivotekDevice_devStateIcon {
 	my $manual	= ReadingsVal($name, 'manual', undef);
 	my $state	= ReadingsVal($name, 'state', undef);
 
-	# Auto
-	# if ($manual eq "off" && $state eq "on") {
-		# return "rc_BLUE";
-	# }
-	# elsif ($manual eq "on") {
-		# return 'rc_RED';
-	# }
-	# else {
-		# return 'rc_STOP';
-	# }
 	return 'off:rc_STOP on:rc_RED auto:rc_BLUE updating:refresh@blue';
 }
 

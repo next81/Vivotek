@@ -1,7 +1,7 @@
 #
 #	50_Vivotek.pm 
 #
-#	(c) 2022 Andreas Planer (https://forum.fhem.de/index.php?action=profile;u=45773)
+#	(c) 2023 Andreas Planer (https://forum.fhem.de/index.php?action=profile;u=45773)
 #
 
 
@@ -35,24 +35,29 @@ sub Vivotek_Initialize($) {
 }
 
 sub Vivotek_Define($$) {
-    my $hash	= shift // return;
-    my $def		= shift // return;
-	my $name	= $hash->{NAME};
-	my $caller	= (caller(1))[3];
-	
-#    my @param = split('[ \t]+', $def);
-    my @param	= split m{\s+}xms, $def;
+    my $hash		= shift // return;
+    my $def			= shift // return;
+	my $name		= $hash->{NAME};
+	my $caller		= (caller(1))[3];
+
+	# define <name> Vivotek <hostname>
+
+	my @a = split("[ \t][ \t]*", $def);
+
+	return "Wrong syntax: use 'define <name> Vivotek <hostname>'" if (@a != 3);
+
 
 	Log3 $name, 4, "Vivotek ($name): Vivotek_Define() called by $caller";
 
+	$hash->{hostname} = $a[2];
 	$hash->{interval} = 60; # Default Interval
+
+	readingsSingleUpdate($hash, 'state', 'defined. set username, password', $init_done);
+
+	$modules{Vivotek}{defptr}{$name} = \$hash;
 
 	# Verbindungsaufbau mit dem NVR starten
 	Vivotek_Connect($hash);
-
-	readingsSingleUpdate($hash, 'state', 'defined', $init_done);
-
-	$modules{Vivotek}{defptr}{$name} = \$hash;
 
 	return undef;
 }
@@ -61,9 +66,11 @@ sub Vivotek_Undefine($$) {
 	my ($hash, $name) = @_;
 	my $caller	= (caller(1))[3];
 
-	Log3 $hash->{NAME}, 3, "Vivotek ($hash->{NAME}): Vivotek_Undefine() called by $caller";
-	Log3 $hash->{NAME}, 3, "Vivotek ($hash->{NAME}) deleting device";
+	Log3 $hash->{NAME}, 4, "Vivotek ($hash->{NAME}): Vivotek_Undefine() called by $caller";
+	Log3 $hash->{NAME}, 4, "Vivotek ($hash->{NAME}) deleting device";
 
+	RemoveInternalTimer($hash);   
+	
 	return undef;
 }
 
@@ -74,7 +81,7 @@ sub Vivotek_Get($$@) {
 	return "\"get $name\" needs at least one argument" unless(defined($cmd));
 	return "unknown argument $cmd choose one of smartInfo" if ($cmd eq '?');
 
-	Log3 $hash->{NAME}, 3, "Vivotek ($hash->{NAME}): Vivotek_Get() called by $caller";
+	Log3 $hash->{NAME}, 4, "Vivotek ($hash->{NAME}): Vivotek_Get() called by $caller";
 
 	if ($cmd eq 'smartInfo') 
 	{
@@ -105,7 +112,7 @@ sub Vivotek_Set($@) {
 
 			Vivotek_storePassword($hash, $value);
 			
-			if (AttrVal($name, "username", "") ne "") {
+			if (AttrVal($name, "username", "") ne "" && $hash->{hostname} ne "") {
 				Vivotek_Connect($hash);
 			}
 			
@@ -125,7 +132,7 @@ sub Vivotek_Write($$) {
 	my $caller		= (caller(1))[3];
 	
 	Log3 $name, 4, "Vivotek ($name): Vivotek_Write() called by $caller";
-	Log3 $name, 3, "Vivotek ($name): Vivotek_Write(): (deviceName: $deviceName cmd:$cmd, value:".(defined($value) ? $value : "");
+	Log3 $name, 5, "Vivotek ($name): Vivotek_Write(): (deviceName: $deviceName cmd:$cmd, value:".(defined($value) ? $value : "");
 
 
 	if ($cmd eq 'on' || $cmd eq 'off') {
@@ -143,27 +150,6 @@ sub Vivotek_Write($$) {
 
 		$deviceHash->{'.newState'} = lc $cmd;
 
-		# Json Array muss zuerst zusammen gebaut werden. Beim NVR kann je 30 Minuten angegeben werden, wodurch aufgezeichnet werden soll.
-#		my $rValue = ($value eq 'auto') ? 1 : 2;
-		# my $rValue = 1;
-		# my $data->{$deviceHash->{channel}} = {	'version' => 2,
-												# 'schedule_type' => 'system',
-												# 'schedule_index' => 0,
-												# 'customized' => \1,
-												# 'id' => $deviceHash->{channel}};
-		# my ($weekDay);
-
-		# # je Wochentag
-		# foreach (1 .. 7) {
-			# $weekDay = ();
-			# # je halbe Stunde eines Tages
-			# for (1 .. 48) {
-				# push @$weekDay, $rValue;
-			# }
-			# push @{$data->{$deviceHash->{channel}}{value}},$weekDay;
-		# }
-
-		# Vivotek_RequestAPI($hash, $cmd, JSON->new->encode($data), $deviceName);
 	}
 	elsif ($cmd eq 'recordMode') {
 		Vivotek_RecordMode($hash, $deviceName, $value);
@@ -182,8 +168,8 @@ sub Vivotek_RecordMode($$$) {
 	my ($data);
 
 
-	# Json Array muss zuerst zusammen gebaut werden. Beim NVR kann je 30 Minuten angegeben werden, wodurch aufgezeichnet werden soll.
-	my $data->{$deviceHash->{channel}} = {	'version' => 2,
+	# Json Array muss zuerst zusammen gebaut werden. Beim NVR kann je 30 Minuten angegeben werden, ob aufgezeichnet werden soll.
+	$data->{$deviceHash->{channel}} = {	'version' => 2,
 											'schedule_type' => 'system',
 											'schedule_index' => 0,
 											'customized' => \1,
@@ -205,13 +191,20 @@ sub Vivotek_RecordMode($$$) {
 
 sub Vivotek_Attr($$$$) {
 	my ( $cmd, $name, $aName, $aValue ) = @_;
-    
+	my $caller	= (caller(1))[3];
+    my $hash	= $defs{$name};
+	
   	# $cmd  - Vorgangsart - kann die Werte "del" (löschen) oder "set" (setzen) annehmen
 	# $name - Gerätename
 	# $aName/$aValue sind Attribut-Name und Attribut-Wert
+
+	Log3 $name, 4, "Vivotek ($name): Vivotek_Attr() called by $caller";
     
 	if ($cmd eq "set") {
 		if ($aName eq "username") {
+			if ($aValue ne "" && Vivotek_readPassword($hash) ne "") {
+				InternalTimer(gettimeofday() + 1, 'Vivotek_Connect', $hash);
+			}
 
 		}
 	}
@@ -272,144 +265,151 @@ sub Vivotek_RequestAPI($$;$$) {
 	my $caller		= (caller(1))[3];
 	my ($param, $paramCmd);
 	my $username	= AttrVal($name, "username", "");
+	my $hostname	= $hash->{hostname};
 
-	my $header = {	'Accept' 		=> 'application/json, text/plain, */*',
-					'Content-Type'	=> 'application/x-www-form-urlencoded', 
-					'charset'		=> 'UTF-8'};
+	if ($hostname ne "") {
+		my $header = {	'Accept' 		=> 'application/json, text/plain, */*',
+						'Content-Type'	=> 'application/x-www-form-urlencoded', 
+						'charset'		=> 'UTF-8'};
 
-	my $deviceHash	= $defs{$deviceName} if (defined($deviceName));
+		my $deviceHash	= $defs{$deviceName} if (defined($deviceName));
 
-	# Header um Session Cookie erweitern, wenn vorhanden
-	if (defined($hash->{'.SID'})) {
-		$header = { %$header,
-					'Cookie'		=> 'username='.$username.'; language=1; _SID_='.$hash->{'.SID'}};
+		# Header um Session Cookie erweitern, wenn vorhanden
+		if (defined($hash->{'.SID'})) {
+			$header = { %$header,
+						'Cookie'		=> 'username='.$username.'; language=1; _SID_='.$hash->{'.SID'}};
+		}
+										
+		Log3 $name, 4, "Vivotek ($name): Vivotek_RequestAPI (cmd: $cmd) called by $caller";
+
+		if ($cmd eq 'getSystemKey') {
+			$paramCmd = {	url 		=> 'http://'.$hostname.'/fcgi-bin/system.key',
+							method		=> 'GET'
+						};
+		} elsif ($cmd eq 'login') {
+			$paramCmd = {	url 		=> 'http://'.$hostname.'/fcgi-bin/system.login',
+							method		=> 'POST',
+							data		=> $data
+						};
+		} elsif ($cmd eq 'getDevices') {
+			$paramCmd = {	url 		=> 'http://'.$hostname.'/fcgi-bin/operator/gconf.query',
+							method		=> 'POST',
+							data		=> 'path=/system/software/meteor/encoder'
+						};
+		} elsif ($cmd eq 'getDeviceInfo' && Vivotek_IsNumeric($deviceHash->{channel})) {
+			$paramCmd = {	url 		=> 'http://'.$hostname.'/fcgi-bin/operator/gconf.query',
+							method		=> 'POST',
+							data		=> 'path=/system/software/meteor/encoder/'.$deviceHash->{channel},
+							deviceName	=> $deviceName
+						};
+		} elsif ($cmd eq 'getSystemInfo') {
+			$paramCmd = {	url 		=> 'http://'.$hostname.'/fcgi-bin/operator/gconf.query',
+							method		=> 'POST',
+							data		=> 'path=/system/software/raphael/system'
+						};
+		} elsif ($cmd eq 'getVolumeInfo') {
+			$paramCmd = {	url 		=> 'http://'.$hostname.'/fcgi-bin/admin/volume.info',
+							method		=> 'POST'
+						};
+		} elsif ($cmd eq 'keepAlive') {
+			$paramCmd = {	url 		=> 'http://'.$hostname.'/fcgi-bin/system.session-keep-alive?alive=true',
+							method		=> 'POST',
+							data		=> 'alive=true'
+						};
+		} elsif ($cmd eq 'on' && Vivotek_IsNumeric($deviceHash->{channel})) {
+			$paramCmd = {	url 		=> 'http://'.$hostname.'/fcgi-bin/operator/recording.start',
+							method		=> 'POST',
+							data		=> 'channel='.$deviceHash->{channel}.'&username='.$username,
+							deviceName	=> $deviceName
+						};
+		} elsif ($cmd eq 'off' && Vivotek_IsNumeric($deviceHash->{channel})) {
+			$paramCmd = {	url 		=> 'http://'.$hostname.'/fcgi-bin/operator/recording.stop',
+							method		=> 'POST',
+							data		=> 'channel='.$deviceHash->{channel}.'&username='.$username,
+							deviceName	=> $deviceName
+						};
+		} elsif ($cmd eq 'recordMode') {
+			$paramCmd = {	url 		=> 'http://'.$hostname.'/fcgi-bin/operator/gconf.update',
+							method		=> 'POST',
+							data		=> 'path=/system/software/mars-rec/schedule&data='.$data,
+							deviceName	=> $deviceName
+						};
+		} elsif ($cmd eq 'getRecordStatus') {
+			$paramCmd = {	url 		=> 'http://'.$hostname.'/fcgi-bin/operator/gconf.query',
+							method		=> 'POST',
+							data		=> "path=/system/software/mars-rec/status"
+						};
+		} elsif ($cmd eq 'getDeviceRecordStatus' && Vivotek_IsNumeric($deviceHash->{channel})) {
+			$paramCmd = {	url 		=> 'http://'.$hostname.'/fcgi-bin/operator/gconf.query',
+							method		=> 'POST',
+							data		=> 'path=/system/software/mars-rec/status/'.$deviceHash->{channel},
+							deviceName	=> $deviceName
+						};
+		} elsif ($cmd eq 'getSmartInfo' && Vivotek_IsNumeric($data)) {
+			$paramCmd = {	url 		=> 'http://'.$hostname.'/fcgi-bin/admin/smart.info',
+							method		=> 'POST',
+							data		=> 'disk='.$data
+						};
+	#todo
+		} elsif ($cmd eq 'getDiskInfo') {
+			$paramCmd = {	url 		=> 'http://'.$hostname.'/fcgi-bin/admin/disk.info',
+							method		=> 'GET'
+						};
+		}
+
+	#GET http://cam.home.local/fcgi-bin/admin/disk.info
+
+	#use Data::Dumper;
+	#print Dumper $paramCmd;
+
+	# start:
+	# {"cmd":"PluginEvents","data":"{\"Event\":{\"EventDSTOffset_s\":3600,\"EventExtraInfo\":\"{\\\"8\\\":{\\\"Manual\\\":true}}\",\"EventTimestamp_ms\":1659525512746,\"EventType\":\"RecordingStatusChanged\",\"EventUTCOffset_s\":7200},\"PluginID\":\"A1B3C2E89AB12CE3A0B1CBE5A5904DE1\",\"SID\":\"{5ccc0f9a-3965-46c9-8a02-9dd0337ac389}\"}","msgType":2,"serial":1961,"uuid":""}
+	# {"cmd":"PluginEvents","data":"{\"Event\":{\"EventDSTOffset_s\":3600,\"EventExtraInfo\":\"{\\\"8\\\":{\\\"State\\\":\\\"Recording\\\"}}\",\"EventTimestamp_ms\":1659525515976,\"EventType\":\"RecordingStatusChanged\",\"EventUTCOffset_s\":7200},\"PluginID\":\"A1B3C2E89AB12CE3A0B1CBE5A5904DE1\",\"SID\":\"{5ccc0f9a-3965-46c9-8a02-9dd0337ac389}\"}","msgType":2,"serial":1963,"uuid":""}
+
+	# stop:
+	# {"cmd":"PluginEvents","data":"{\"Event\":{\"EventDSTOffset_s\":3600,\"EventExtraInfo\":\"{\\\"8\\\":{\\\"Manual\\\":false,\\\"State\\\":\\\"Playing\\\"}}\",\"EventTimestamp_ms\":1659525558154,\"EventType\":\"RecordingStatusChanged\",\"EventUTCOffset_s\":7200},\"PluginID\":\"A1B3C2E89AB12CE3A0B1CBE5A5904DE1\",\"SID\":\"{5ccc0f9a-3965-46c9-8a02-9dd0337ac389}\"}","msgType":2,"serial":1967,"uuid":""}
+
+
+	# http://cam.home.local/fcgi-bin/admin/camera.auth_check
+	# POST ch=0
+
+	# recording streams
+	#http://cam.home.local/fcgi-bin/operator/gconf.query
+	#post path=/system/software/mars-rec/recording_stream
+
+	#recording schedule
+	#http://cam.home.local/fcgi-bin/operator/gconf.query
+	#post path=/system/software/mars-rec/schedule
+
+
+
+	#recording schedule update
+		
+	#use Data::Dumper::Perltidy;
+	#print Dumper $paramCmd;
+		if (!defined($paramCmd)) {
+			Log3 $name, 1, "Vivotek_RequestAPI ($name): Fatal error. No parameter defined!";
+			use Data::Dumper;
+			print Dumper $cmd;
+			print Dumper $data;
+			print Dumper Vivotek_IsNumeric($data);
+		}
+		
+		# Standardwerte für alle Requests ergänzen
+		$param = {	%$paramCmd,
+					cmd			=> $cmd, 
+					timeout		=> 30,
+					hash		=> $hash,
+					header		=> $header,
+					callback	=> \&Vivotek_Callback
+					};
+
+		HttpUtils_NonblockingGet($param);
+	} else {
+		Log3 $name, 1, "Vivotek ($name): no hostname set";
+		readingsSingleUpdate($hash, 'state', 'no hostname set', 1);
+
 	}
-									
-	Log3 $name, 3, "Vivotek ($name): Vivotek_RequestAPI (cmd: $cmd) called by $caller";
-
-	if ($cmd eq 'getSystemKey') {
-		$paramCmd = {	url 		=> 'http://cam.home.local/fcgi-bin/system.key',
-						method		=> 'GET'
-					};
-	} elsif ($cmd eq 'login') {
-		$paramCmd = {	url 		=> 'http://cam.home.local/fcgi-bin/system.login',
-						method		=> 'POST',
-						data		=> $data
-					};
-	} elsif ($cmd eq 'getDevices') {
-		$paramCmd = {	url 		=> 'http://cam.home.local/fcgi-bin/operator/gconf.query',
-						method		=> 'POST',
-						data		=> 'path=/system/software/meteor/encoder'
-					};
-	} elsif ($cmd eq 'getDeviceInfo' && Vivotek_IsNumeric($deviceHash->{channel})) {
-		$paramCmd = {	url 		=> 'http://cam.home.local/fcgi-bin/operator/gconf.query',
-						method		=> 'POST',
-						data		=> 'path=/system/software/meteor/encoder/'.$deviceHash->{channel},
-						deviceName	=> $deviceName
-					};
-	} elsif ($cmd eq 'getSystemInfo') {
-		$paramCmd = {	url 		=> 'http://cam.home.local/fcgi-bin/operator/gconf.query',
-						method		=> 'POST',
-						data		=> 'path=/system/software/raphael/system'
-					};
-	} elsif ($cmd eq 'getVolumeInfo') {
-		$paramCmd = {	url 		=> 'http://cam.home.local/fcgi-bin/admin/volume.info',
-						method		=> 'POST'
-					};
-	} elsif ($cmd eq 'keepAlive') {
-		$paramCmd = {	url 		=> 'http://cam.home.local/fcgi-bin/system.session-keep-alive?alive=true',
-						method		=> 'POST',
-						data		=> 'alive=true'
-					};
-	} elsif ($cmd eq 'on' && Vivotek_IsNumeric($deviceHash->{channel})) {
-		$paramCmd = {	url 		=> 'http://cam.home.local/fcgi-bin/operator/recording.start',
-						method		=> 'POST',
-						data		=> 'channel='.$deviceHash->{channel}.'&username='.$username,
-						deviceName	=> $deviceName
-					};
-	} elsif ($cmd eq 'off' && Vivotek_IsNumeric($deviceHash->{channel})) {
-		$paramCmd = {	url 		=> 'http://cam.home.local/fcgi-bin/operator/recording.stop',
-						method		=> 'POST',
-						data		=> 'channel='.$deviceHash->{channel}.'&username='.$username,
-						deviceName	=> $deviceName
-					};
-	} elsif ($cmd eq 'recordMode') {
-		$paramCmd = {	url 		=> 'http://cam.home.local/fcgi-bin/operator/gconf.update',
-						method		=> 'POST',
-						data		=> 'path=/system/software/mars-rec/schedule&data='.$data,
-						deviceName	=> $deviceName
-					};
-	} elsif ($cmd eq 'getRecordStatus') {
-		$paramCmd = {	url 		=> 'http://cam.home.local/fcgi-bin/operator/gconf.query',
-						method		=> 'POST',
-						data		=> "path=/system/software/mars-rec/status"
-					};
-	} elsif ($cmd eq 'getDeviceRecordStatus' && Vivotek_IsNumeric($deviceHash->{channel})) {
-		$paramCmd = {	url 		=> 'http://cam.home.local/fcgi-bin/operator/gconf.query',
-						method		=> 'POST',
-						data		=> 'path=/system/software/mars-rec/status/'.$deviceHash->{channel},
-						deviceName	=> $deviceName
-					};
-	} elsif ($cmd eq 'getSmartInfo' && Vivotek_IsNumeric($data)) {
-		$paramCmd = {	url 		=> 'http://cam.home.local/fcgi-bin/admin/smart.info',
-						method		=> 'POST',
-						data		=> 'disk='.$data
-					};
-#todo
-	} elsif ($cmd eq 'getDiskInfo') {
-		$paramCmd = {	url 		=> 'http://cam.home.local/fcgi-bin/admin/disk.info',
-						method		=> 'GET'
-					};
-	}
-
-#GET http://cam.home.local/fcgi-bin/admin/disk.info
-
-#use Data::Dumper;
-#print Dumper $paramCmd;
-
-# start:
-# {"cmd":"PluginEvents","data":"{\"Event\":{\"EventDSTOffset_s\":3600,\"EventExtraInfo\":\"{\\\"8\\\":{\\\"Manual\\\":true}}\",\"EventTimestamp_ms\":1659525512746,\"EventType\":\"RecordingStatusChanged\",\"EventUTCOffset_s\":7200},\"PluginID\":\"A1B3C2E89AB12CE3A0B1CBE5A5904DE1\",\"SID\":\"{5ccc0f9a-3965-46c9-8a02-9dd0337ac389}\"}","msgType":2,"serial":1961,"uuid":""}
-# {"cmd":"PluginEvents","data":"{\"Event\":{\"EventDSTOffset_s\":3600,\"EventExtraInfo\":\"{\\\"8\\\":{\\\"State\\\":\\\"Recording\\\"}}\",\"EventTimestamp_ms\":1659525515976,\"EventType\":\"RecordingStatusChanged\",\"EventUTCOffset_s\":7200},\"PluginID\":\"A1B3C2E89AB12CE3A0B1CBE5A5904DE1\",\"SID\":\"{5ccc0f9a-3965-46c9-8a02-9dd0337ac389}\"}","msgType":2,"serial":1963,"uuid":""}
-
-# stop:
-# {"cmd":"PluginEvents","data":"{\"Event\":{\"EventDSTOffset_s\":3600,\"EventExtraInfo\":\"{\\\"8\\\":{\\\"Manual\\\":false,\\\"State\\\":\\\"Playing\\\"}}\",\"EventTimestamp_ms\":1659525558154,\"EventType\":\"RecordingStatusChanged\",\"EventUTCOffset_s\":7200},\"PluginID\":\"A1B3C2E89AB12CE3A0B1CBE5A5904DE1\",\"SID\":\"{5ccc0f9a-3965-46c9-8a02-9dd0337ac389}\"}","msgType":2,"serial":1967,"uuid":""}
-
-
-# http://cam.home.local/fcgi-bin/admin/camera.auth_check
-# POST ch=0
-
-# recording streams
-#http://cam.home.local/fcgi-bin/operator/gconf.query
-#post path=/system/software/mars-rec/recording_stream
-
-#recording schedule
-#http://cam.home.local/fcgi-bin/operator/gconf.query
-#post path=/system/software/mars-rec/schedule
-
-
-
-#recording schedule update
-	
-#use Data::Dumper::Perltidy;
-#print Dumper $paramCmd;
-	if (!defined($paramCmd)) {
-		Log3 $name, 3, "Vivotek_RequestAPI ($name): Fatal error. No parameter defined!";
-		use Data::Dumper;
-		print Dumper $cmd;
-		print Dumper $data;
-		print Dumper Vivotek_IsNumeric($data);
-	}
-	
-	# Standardwerte für alle Requests ergänzen
-	$param = {	%$paramCmd,
-				cmd			=> $cmd, 
-				timeout		=> 30,
-				hash		=> $hash,
-				header		=> $header,
-				callback	=> \&Vivotek_Callback
-				};
-
-	HttpUtils_NonblockingGet($param);
 }
 
 
@@ -430,7 +430,7 @@ sub Vivotek_Callback($) {
 
 	# Errorhandling
 	if ($err ne '') {
-		Log3 $name, 3, "Vivotek ($name): error while requesting $param->{url} - $err";
+		Log3 $name, 2, "Vivotek ($name): error while requesting $param->{url} - $err";
 		return;
     }
 	elsif ($param->{code} != 200) {
@@ -483,7 +483,7 @@ sub Vivotek_GetDeviceRecordStatusCallback($$$) {
 	my $deviceNumber	= $deviceHash->{channel};
 	my ($decodedJson, $deviceData);
 
-	Log3 $name, 3, "Vivotek ($name): Vivotek_GetRecordStatusCallback() called";
+	Log3 $name, 4, "Vivotek ($name): Vivotek_GetRecordStatusCallback() called";
 
 	if ($decodedJson = Vivotek_DecodeJson($hash, $content)) {
 		$decodedJson->{channel} = $deviceNumber;
@@ -497,7 +497,7 @@ sub Vivotek_GetRecordStatusCallback($$) {
 	my $name = $hash->{NAME};
 	my ($decodedJson, $deviceData);
 
-	Log3 $name, 3, "Vivotek ($name): Vivotek_GetRecordStatusCallback() called";
+	Log3 $name, 4, "Vivotek ($name): Vivotek_GetRecordStatusCallback() called";
 
 	if ($decodedJson = Vivotek_DecodeJson($hash, $content)) {
 		foreach my $deviceNumber (sort {$a <=> $b} keys %$decodedJson) {
@@ -516,7 +516,7 @@ sub Vivotek_StateCallback($$$) {
 	my $deviceHash	= $defs{$param->{deviceName}};
 	my ($decodedJson);
 
-	Log3 $name, 3, "Vivotek ($name): Vivotek_StateCallback() called";
+	Log3 $name, 4, "Vivotek ($name): Vivotek_StateCallback() called";
 
 	if ($decodedJson = Vivotek_DecodeJson($hash, $content)) {
 		if ($decodedJson eq 'True') {
@@ -542,11 +542,11 @@ sub Vivotek_GetSystemKeyCallback($$) {
 	my $username = AttrVal($name, "username", "");
 	my $password = Vivotek_readPassword($hash);
 	
-	Log3 $name, 3, "Vivotek ($name): Vivotek_SystemKeyCallback() called by $caller";
+	Log3 $name, 4, "Vivotek ($name): Vivotek_SystemKeyCallback() called by $caller";
 
 	# Fehlermeldung, wenn PublicKey nicht vorhanden
 	if (!defined($publicKey = Vivotek_DecodeJson($hash, $content) )) {
-		Log3 $name, 3, "Vivotek ($name): RSA publicKey not received";
+		Log3 $name, 1, "Vivotek ($name): RSA publicKey not received";
 		return;
 	}
 	
@@ -563,7 +563,7 @@ sub Vivotek_LoginCallback($$) {
 	my $caller	= (caller(1))[3];
 	my ($decodedJson);
 	
-	Log3 $name, 3, "Vivotek ($name): Vivotek_ConnectCallback() called by $caller";
+	Log3 $name, 4, "Vivotek ($name): Vivotek_ConnectCallback() called by $caller";
 
 	if ($decodedJson = Vivotek_DecodeJson($hash, $content)) {
 
@@ -588,7 +588,7 @@ sub Vivotek_GetSmartInfoCallback($$) {
 	my $caller	= (caller(1))[3];
 	my ($decodedJson);
 	
-	Log3 $name, 3, "Vivotek ($name): Vivotek_GetSmartInfoCallback() called by $caller";
+	Log3 $name, 4, "Vivotek ($name): Vivotek_GetSmartInfoCallback() called by $caller";
 
 	if ($decodedJson = Vivotek_DecodeJson($hash, $content)) {
 use Data::Dumper;
@@ -603,7 +603,7 @@ sub Vivotek_GetVolumeInfoCallback($$) {
 	my $caller	= (caller(1))[3];
 	my ($decodedJson);
 	
-	Log3 $name, 3, "Vivotek ($name): Vivotek_GetVolumeInfoCallback() called by $caller";
+	Log3 $name, 4, "Vivotek ($name): Vivotek_GetVolumeInfoCallback() called by $caller";
 
 	if ($decodedJson = Vivotek_DecodeJson($hash, $content)) {
 		# Zur Zeit wird nur ein Volume(0) unterstützt.
@@ -632,7 +632,7 @@ sub Vivotek_GetSystemInfoCallback($$) {
 	my $caller	= (caller(1))[3];
 	my ($decodedJson);
 	
-	Log3 $name, 3, "Vivotek ($name): Vivotek_GetSystemInfoCallback() called by $caller";
+	Log3 $name, 4, "Vivotek ($name): Vivotek_GetSystemInfoCallback() called by $caller";
 
 	if ($decodedJson = Vivotek_DecodeJson($hash, $content)) {
 		readingsBeginUpdate($hash);
@@ -715,7 +715,7 @@ sub Vivotek_DecodeJson($$) {
    
     # Fehler prüfen, wenn $content kein valides JSON enthielt
     if ( !eval { $decodedJson  = JSON->new->decode($content) ; 1 } ) {
-        Log3($name, 3, "Vivotek (${name}): $caller returned error: $@ content: $content");
+        Log3($name, 2, "Vivotek (${name}): $caller returned error: $@ content: $content");
 
 # prüfen ob "401 Authorization Required" als html
         return 'error';
@@ -779,7 +779,7 @@ sub Vivotek_EncryptLoginData($$$$) {
 														);
 	$rsa->use_pkcs1_padding();
 
-	Log3 $name, 3, 'Vivotek_EncryptLoginData: Keysize: '.length($publicKey->{n}).' - msgsize: '.length($message);
+	Log3 $name, 4, 'Vivotek_EncryptLoginData: Keysize: '.length($publicKey->{n}).' - msgsize: '.length($message);
 	Log3 $name, 5, 'Vivotek_EncryptLoginData: public key (in PKCS1 format) is: '.sprintf('\n%s\n', $rsa->get_public_key_string());
 
 	# Loginphrase mit Public Key verschlüsseln
@@ -801,7 +801,7 @@ sub Vivotek_MakeDeviceName($) {
 sub Vivotek_LoadVivotekDevice() {
 	if( !$modules{VivotekDevice}{LOADED}) {
 		my $ret = CommandReload(undef, '51_VivotekDevice');
-		Log3 undef, 1, "LoadVivotekDevice: $ret" if( $ret );
+		Log3 undef, 4, "LoadVivotekDevice: $ret" if( $ret );
 	}
 }
 
