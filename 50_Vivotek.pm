@@ -2,7 +2,7 @@
 #	50_Vivotek.pm 
 #
 #	(c) 2023 Andreas Planer (https://forum.fhem.de/index.php?action=profile;u=45773)
-#
+#a
 
 
 package main;
@@ -90,7 +90,6 @@ sub Vivotek_Get($$@) {
 
 }
 
-
 sub Vivotek_Set($@) {
 	my ($hash, @param) = @_;
 	my $setKeys = ["password"];
@@ -123,7 +122,6 @@ sub Vivotek_Set($@) {
 		return "Unknown argument $cmd, choose one of password";
 	}
 }
-
 
 sub Vivotek_Write($$) {
 	my ( $hash, $deviceName, $cmd, $value) = @_;
@@ -357,36 +355,6 @@ sub Vivotek_RequestAPI($$;$$) {
 						};
 		}
 
-	#GET http://cam.home.local/fcgi-bin/admin/disk.info
-
-	#use Data::Dumper;
-	#print Dumper $paramCmd;
-
-	# start:
-	# {"cmd":"PluginEvents","data":"{\"Event\":{\"EventDSTOffset_s\":3600,\"EventExtraInfo\":\"{\\\"8\\\":{\\\"Manual\\\":true}}\",\"EventTimestamp_ms\":1659525512746,\"EventType\":\"RecordingStatusChanged\",\"EventUTCOffset_s\":7200},\"PluginID\":\"A1B3C2E89AB12CE3A0B1CBE5A5904DE1\",\"SID\":\"{5ccc0f9a-3965-46c9-8a02-9dd0337ac389}\"}","msgType":2,"serial":1961,"uuid":""}
-	# {"cmd":"PluginEvents","data":"{\"Event\":{\"EventDSTOffset_s\":3600,\"EventExtraInfo\":\"{\\\"8\\\":{\\\"State\\\":\\\"Recording\\\"}}\",\"EventTimestamp_ms\":1659525515976,\"EventType\":\"RecordingStatusChanged\",\"EventUTCOffset_s\":7200},\"PluginID\":\"A1B3C2E89AB12CE3A0B1CBE5A5904DE1\",\"SID\":\"{5ccc0f9a-3965-46c9-8a02-9dd0337ac389}\"}","msgType":2,"serial":1963,"uuid":""}
-
-	# stop:
-	# {"cmd":"PluginEvents","data":"{\"Event\":{\"EventDSTOffset_s\":3600,\"EventExtraInfo\":\"{\\\"8\\\":{\\\"Manual\\\":false,\\\"State\\\":\\\"Playing\\\"}}\",\"EventTimestamp_ms\":1659525558154,\"EventType\":\"RecordingStatusChanged\",\"EventUTCOffset_s\":7200},\"PluginID\":\"A1B3C2E89AB12CE3A0B1CBE5A5904DE1\",\"SID\":\"{5ccc0f9a-3965-46c9-8a02-9dd0337ac389}\"}","msgType":2,"serial":1967,"uuid":""}
-
-
-	# http://cam.home.local/fcgi-bin/admin/camera.auth_check
-	# POST ch=0
-
-	# recording streams
-	#http://cam.home.local/fcgi-bin/operator/gconf.query
-	#post path=/system/software/mars-rec/recording_stream
-
-	#recording schedule
-	#http://cam.home.local/fcgi-bin/operator/gconf.query
-	#post path=/system/software/mars-rec/schedule
-
-
-
-	#recording schedule update
-		
-	#use Data::Dumper::Perltidy;
-	#print Dumper $paramCmd;
 		if (!defined($paramCmd)) {
 			Log3 $name, 1, "Vivotek_RequestAPI ($name): Fatal error. No parameter defined!";
 			use Data::Dumper;
@@ -441,7 +409,7 @@ sub Vivotek_Callback($) {
 	
 
 		if ($cmd eq 'on' || $cmd eq 'off' || $cmd eq 'recordMode') {
-#{ "status": 500, "message": "Invalid camera authentication." }			
+			#{ "status": 500, "message": "Invalid camera authentication." }			
 			Vivotek_StateCallback($hash, $param, $content);
 		}
 		elsif ($cmd eq 'getSystemKey') {
@@ -591,8 +559,8 @@ sub Vivotek_GetSmartInfoCallback($$) {
 	Log3 $name, 4, "Vivotek ($name): Vivotek_GetSmartInfoCallback() called by $caller";
 
 	if ($decodedJson = Vivotek_DecodeJson($hash, $content)) {
-use Data::Dumper;
-print Dumper $decodedJson;
+		#use Data::Dumper;
+		#print Dumper $decodedJson;
 	}
 }
 
@@ -669,8 +637,8 @@ sub Vivotek_GetDeviceInfoCallback($$$) {
 			# }
 		# }
 		
-		use Data::Dumper;
-		print Dumper $decodedJson;
+		#use Data::Dumper;
+		#print Dumper $decodedJson;
 	}
 }
 
@@ -717,7 +685,7 @@ sub Vivotek_DecodeJson($$) {
     if ( !eval { $decodedJson  = JSON->new->decode($content) ; 1 } ) {
         Log3($name, 2, "Vivotek (${name}): $caller returned error: $@ content: $content");
 
-# prüfen ob "401 Authorization Required" als html
+		# prüfen ob "401 Authorization Required" als html
         return 'error';
     }
 

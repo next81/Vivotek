@@ -1,5 +1,5 @@
 #
-#	50_VivotekDevice.pm 
+#	51_VivotekDevice.pm 
 #
 #	(c) 2023 Andreas Planer (https://forum.fhem.de/index.php?action=profile;u=45773)
 #
@@ -30,7 +30,6 @@ sub VivotekDevice_Initialize($) {
 												autocreateThreshold	=> '1:60'
 												}
 							};
-#devStateIcon{'<img src="http://garage.cam.home.local/video3.mjpg?user=view&pw=77APmh61" width="400">'}
 	$hash->{AttrList} = 'intervalDetails '.$readingFnAttributes;
 }
 
@@ -38,23 +37,8 @@ sub VivotekDevice_HTML($$$) {
 	my ($FW_wname, $deviceName, $FW_room) = @_;
 	my $deviceHash	= $defs{$deviceName};
 
-	my $html = '<style>canvas {width: 400px;}</style><div id="stream_'.$deviceName.'"></div>';
-	$html.= '<script>';
-#	$html.= '$.getScript("pgm2/medama_v2.min.js").fail(function( jqxhr, settings, exception ) {console.log(exception);});';
-#	$html.= 'loadScript("pgm2/vivotek.js", function() {} );';
-	$html.= 'console.log("'.$deviceName.'");';
-	$html.= '$.getScript("/fhem/pgm2/medama_v2.min.js", function() {
-  $.getScript("/fhem/pgm2/vivotek.js", function() {
-    console.log("loaded!");
-    addStream("ws://cam.home.local","Media/Live/Normal?camera=C_'.$deviceHash->{channel}.'&streamindex=1", "fhem", "20001cb3329f95051e76f3aa83f4c87e", "'.$deviceName.'");
-})});';
-	# $html.= '$.getScript("pgm2/vivotek.js").done(function( script, textStatus ) {
-		# console.log( "success" );
-		# addStream("ws://cam.home.local","Media/Live/Normal?camera=C_1&streamindex=1", "fhem", "cd753f86168920c619548198645fbfe1");
-		# }).fail(function( jqxhr, settings, exception ) {
-		# console.log( exception + "Triggered ajaxError handler." );	
-	# });';
-	$html.= '</script>';
+	my $html = '';
+
 	return $html;
 }
 
@@ -121,8 +105,6 @@ sub VivotekDevice_Parse ($$) {
 	my $caller 			= (caller(1))[3];
 	my ($deviceName);
 
-#'event_properties',
-#'password',
 	my $validParameters = ['pir_count','f_speed','device_channel','t_speed_lv','p_speed','netloc','large_stream_url','z_speed','port','counting','camctrl','channel_count','joystick','medium_stream','vca','mac_binding','vca_auth_websocket','rtsp_uri','ptz_buildinpt','auto_tracking','remote_focus','e_z_speed','di_count','small_stream','e_t_speed','motion_count','isptz','https_port','ext_model','enable_recording','enable','model','vca_wss_port','eptz','large_stream','videomode','mac','object_info','t_speed','p_speed_lv','device_pack_supported','address','z_speed_lv','sip','username','fisheye_mounttype','link_local_address','https_only','medium_stream_url','dms_vca_event','sub_stream','onvif','do_count','status','http_anonymousviewing','vca_ws_port','name','enable_fisheye','small_stream_url','e_p_speed','motion_cell','enable_manual_recording','vca_event','brand','http_authmode','stream_count','http_alt_port','enable_audio_recording','rtsp_authmode','main_stream','ptz_zoommodule','rtsp_port','channel','vca_version','generic','schedule','manual','state'];
 
 	Log3 $name, 4, "VivotekDevice: VivotekDevice_parse() called by $caller";
@@ -146,16 +128,6 @@ sub VivotekDevice_Parse ($$) {
 
 			foreach my $key (keys %{$data}) {
 				if ($key ~~ $validParameters) {
-
-					
-					# if ($key eq 'state') {
-						# print "$deviceName\n";
-						# print "schedule: $data->{'schedule'}\n";
-						# print "state: $data->{'state'}\n";
-						# print "manual: $data->{'manual'}\n";
-						# print "--------------\n";
-					# }
-
 
 					readingsBulkUpdateIfChanged($$hashRef, $key, lc($data->{$key}) );
 				}
